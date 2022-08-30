@@ -1,0 +1,190 @@
+---
+title: "Africa Economy Index"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: ["menu"]
+    source_code: "https://github.com/MosesKitikuKioko"
+    theme: united
+    runtime: shiny
+---
+
+```{r setup, include=FALSE}
+#clear working environment 
+rm(list = ls(all = TRUE))
+
+#set working directory 
+setwd('E:/CcHUB Workflows/R Codes/Data Stories/Africa inflaction index/august stories')
+
+
+#libraries
+library(flexdashboard)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(readxl)
+library(openxlsx)
+library(janitor)
+library(shiny)
+```
+
+```{r}
+##Read data 
+##get only the Inflation, average consumer prices for all percentage change 
+inflation = readxl::read_excel('IMF Financial Data 17 Aug.xlsx', sheet = 'IMF Data') %>% 
+  dplyr::filter(str_detect(`Subject Descriptor`, 'Inflation, average') & Units == 'Percent change') %>% 
+  select(where(~!all(is.na(.x)))) %>% 
+  janitor::clean_names() %>% 
+  dplyr::mutate(value = as.numeric(value)) %>% 
+  dplyr::select(-subject_descriptor, -units)
+
+#generate the per capita data 
+per_capita = readxl::read_excel('IMF Financial Data 17 Aug.xlsx', sheet = 'IMF Data') %>% 
+  dplyr::filter(str_detect(`Subject Descriptor`, 'capita, current') & Units == 'U.S. dollars') %>% 
+  select(where(~!all(is.na(.x)))) %>% 
+  janitor::clean_names() %>% 
+  dplyr::mutate(value = as.numeric(value)) %>% 
+  dplyr::select(-scale)
+
+#get all the data combined 
+df = inflation  %>% 
+  dplyr::group_by(year) %>% 
+  dplyr::summarise(avg_index = median(value, na.rm = T)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::left_join(inflation, by = 'year') %>% 
+  dplyr::left_join(per_capita %>% 
+                     dplyr::rename(per_capita = value), by = c('year', 'country')) %>% 
+  dplyr::rename(inflation = value) 
+
+```
+
+
+## column {.sidebar data-width="350"}
+
+Data source: [International Monetary Fund](https://www.imf.org/en/Publications/WEO/weo-database/2022/April/weo-report?c=614,638,616,748,618,624,622,626,628,632,636,634,662,642,643,734,644,646,648,652,656,654,664,666,668,674,676,678,684,688,728,692,694,714,716,722,718,724,199,733,738,742,746,754,698,&s=NGDP_R,NGDP_RPCH,NGDP,NGDPD,PPPGDP,NGDP_D,NGDPRPC,NGDPRPPPPC,NGDPPC,NGDPDPC,PPPPC,PPPSH,PPPEX,NID_NGDP,NGSD_NGDP,PCPI,PCPIPCH,PCPIE,PCPIEPCH,TM_RPCH,TMG_RPCH,TX_RPCH,TXG_RPCH,LUR,LP,GGR,GGR_NGDP,GGX,GGX_NGDP,GGXCNL,GGXCNL_NGDP,GGSB,GGSB_NPGDP,GGXONLB,GGXONLB_NGDP,GGXWDN,GGXWDN_NGDP,GGXWDG,GGXWDG_NGDP,NGDP_FY,BCA,BCA_NGDPD,&sy=1990&ey=2022&ssm=0&scsm=1&scc=0&ssd=1&ssc=0&sic=0&sort=country&ds=.&br=1)
+
+To interact with the graphs please use the filters below
+
+```{r message=FALSE, warning=FALSE}
+inputPanel(
+  sliderInput("selected_year", label = "Select Range of years",
+              min = df$year[1], max = tail(df$year, 1), value =c(df$year[1], tail(df$year, 1)), step = 5),
+  
+  selectInput(inputId = "country",
+              label = "Choose a Country", 
+              choices = unique(df$country)))
+```
+
+
+
+```{r}
+shiny::renderText({
+  cor_res_df = df %>% dplyr::filter(country %in% input$country, year >= input$selected_year[1], year <= input$selected_year[2])
+  
+  cor_res = round(cor(cor_res_df$per_capita, cor_res_df$inflation, method = 'spearman'), 3)
+  
+  res_label = ifelse(cor_res < -0.5 , "strong negative correlation coefficient", 
+                     ifelse(cor_res < 0, "weak negative correlation coefficient",
+                            ifelse(cor_res < 0.5, "weak positive correlation coefficient","strong positive correlation coefficient")))
+  
+  final_print = ifelse(cor_res < 0, "increase in growth domestic product (GDP) per capita lead to inflation index decrease by",
+                       "increase in growth domestic product (GDP) per capita lead to inflation index increase by ")
+  
+  cor_percent = scales::percent(cor_res, accuracy = 0.1)
+  
+  print(paste(input$country,"had a", res_label, "of", cor_res, "between year", input$selected_year[1],"and", 
+              input$selected_year[2], ". Therefore we conclude that", final_print, cor_percent))
+  })
+```
+
+
+
+
+```{r}
+shiny::renderPlot({
+  cor_plot_df = df %>% dplyr::filter(country %in% input$country, year >= input$selected_year[1], year <= input$selected_year[2])
+  
+  cor_plot_df %>% 
+    ggplot2::ggplot(aes(x = per_capita, y = inflation))+
+    geom_point(color = '#A63145')+
+    geom_smooth(color = "#990011FF" , se = FALSE, method = 'loess')+
+    labs(title = "Inflation Index and GDP per Capita Relationship", 
+         x = 'Gross Domestic Product (GDP) per capita', 
+         y = "Average Inflation Index (% Change)", 
+         caption = "Designed By: Moses Kioko")+
+    theme_minimal()+
+    theme(plot.title = element_text(hjust = 0.5, face = 'bold', color = '#00203FFF', size = 12), 
+          plot.background = element_rect(fill = '#FAECEE', color = '#FAECEE'), 
+          plot.caption = element_text(color = "grey30", size = 7))
+  
+})
+```
+
+
+
+
+## Column
+
+### Inflation Rates per Country
+
+```{r}
+renderPlotly({
+  dat = df %>% dplyr::filter(country %in% input$country, year >= input$selected_year[1], year <= input$selected_year[2])
+    
+    plot_ly(dat,
+            x = ~year, 
+            y = ~inflation,
+            color = ~country,
+            customdata = dat$country,
+            colors = '#EA738DFF'
+            # fill = 't
+            ) %>%
+      add_trace(
+        type = 'scatter',
+        mode = 'lines+markers',
+        hovertemplate = paste("Country: %{customdata}",
+                              "Inflation Rate (%): %{y}", 
+                              "Year : %{x}",
+                              "<extra></extra>",
+                              sep = "\n"),
+        hoveron = 'points') %>% 
+      layout(#plot_bgcolor = "#e5ecf6",
+             showlegend = T,
+             legend = list(x = 0.1, y = 0.9),
+             xaxis = list(title = 'Year'), 
+             yaxis = list(title = 'Inflation Rate'), 
+             legend = list(title=list(text='<b> Country </b>')))})
+```
+
+### Gross Domestic Product per Capita {data-width="500"}
+
+```{r}
+
+renderPlotly({
+  dat = df %>% dplyr::filter(country %in% input$country, year >= input$selected_year[1], year <= input$selected_year[2])
+    
+    plot_ly(dat,
+            x = ~year, 
+            y = ~per_capita,
+            color = ~country,
+            customdata = dat$country,
+            colors = '#2BAE66FF'
+            # fill = 't
+            ) %>%
+      add_trace(
+        type = 'scatter',
+        mode = 'lines+markers',
+        hovertemplate = paste("Country: %{customdata}",
+                              "GDP per Capita : %{y}", 
+                              "Year : %{x}",
+                              "<extra></extra>",
+                              sep = "\n"),
+        hoveron = 'points') %>% 
+      layout(showlegend = T,
+             legend = list(x = 0.1, y = 0.9), 
+             xaxis = list(title = 'Year'), 
+             yaxis = list(title = 'GDP per Capita'), 
+             legend = list(title=list(text='<b> Country </b>')))})### Inflation Rates & GDP Relationship
+```
+
+

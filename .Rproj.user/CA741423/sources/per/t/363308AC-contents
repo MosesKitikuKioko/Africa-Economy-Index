@@ -1,0 +1,89 @@
+#clear working environment 
+rm(list = ls(all = T))
+
+# install.packages("devtools")
+# devtools::install_github("RcppCore/Rcpp")
+# devtools::install_github("rstats-db/DBI")
+# devtools::install_github("rstats-db/RPostgres")
+# install.packages(
+#   c("RPostgreSQL",
+#     "RSQLite",
+#     "sqldf",
+#     "sf", 
+#     "kableExtra", 
+#     "dplyr",
+#     "tidyr",
+#     "knitr",
+#     "ggplot2",
+#     "readstata13",
+#     "DT",
+#     "rgdal",
+#     "captioner"), dependencies = T)
+
+library(RPostgres)
+library(DBI)
+
+
+#libraries 
+library(tidyverse)
+library(dbplyr)
+library(DBI)
+library(RPostgres)
+library(odbc)
+library(RODBC)
+
+
+#define variables 
+data_path = 'C:/Users/moses/Downloads/'
+dsn_database = 'postgress'
+dsn_host = 'research-dev-db.cluster-c30rc84jwwhk.us-east-2.rds.amazonaws.com'
+# dsn_host = 'localhost'
+dsn_name = 'postgres'
+dsn_port = 5432
+dsn_uid  = 'postgres'
+dsn_password = 'researchpassword'
+
+
+
+tryCatch({
+  drv <- dbDriver("PostgreSQL")
+  print("Connecting to Database.")
+  connec <- dbConnect(drv, 
+                      dbname = dsn_database,
+                      host = dsn_hostname, 
+                      port = dsn_port,
+                      user = dsn_uid, 
+                      password = dsn_password)
+  print("Database Connected!")
+},
+error=function(cond) {
+  print("Unable to connect to Database.")
+})
+
+
+
+# create a connection
+con <- dbConnect(RPostgres::Postgres(),
+                 dbname = dsn_database,
+                 host = dsn_host,
+                 port = 5432,
+                 user = "postgres",
+                 password = dsn_password)
+
+
+#list the number of tables 
+dbListTables(con) 
+
+#read data from the 
+data = readr::read_csv(paste(data_path, "comprehensive_dataset_long.csv", sep = ""))
+
+#subset the data
+trial_set = data %>% 
+  dplyr::sample_n(50) %>% 
+  dplyr::select(exporting_country_iso:commodities)
+
+#write tables in database
+DBI::dbWriteTable(conn = con,name = 'TestData', value = trial_set)
+
+#get the data 
+dbGetQuery(con, "SELECT * FROM TestData") 
